@@ -143,7 +143,7 @@ type AdapterConfig struct {
 	IsFiltered     bool
 }
 
-func NewAdapterByDB(client *mongo.Client, config *AdapterConfig) (persist.BatchAdapter, error) {
+func NewAdapterByDB(client *mongo.Client, config *AdapterConfig) (persist.ContextFilteredAdapter, error) {
 	if config == nil {
 		config = &AdapterConfig{}
 	}
@@ -252,18 +252,28 @@ func (a *adapter) LoadPolicy(model model.Model) error {
 	return a.LoadFilteredPolicy(model, nil)
 }
 
+// LoadPolicyCtx implements persist.ContextFilteredAdapter.
+func (a *adapter) LoadPolicyCtx(ctx context.Context, model model.Model) error {
+	return a.LoadFilteredPolicyCtx(ctx, model, nil)
+}
+
 // LoadFilteredPolicy loads matching policy lines from database. If not nil,
 // the filter must be a valid MongoDB selector.
 func (a *adapter) LoadFilteredPolicy(model model.Model, filter interface{}) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
+	defer cancel()
+
+	return a.LoadFilteredPolicyCtx(ctx, model, filter)
+}
+
+// LoadFilteredPolicyCtx implements persist.ContextFilteredAdapter.
+func (a *adapter) LoadFilteredPolicyCtx(ctx context.Context, model model.Model, filter interface{}) error {
 	if filter == nil {
 		a.filtered = false
 		filter = bson.D{{}}
 	} else {
 		a.filtered = true
 	}
-
-	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
-	defer cancel()
 
 	cursor, err := a.collection.Find(ctx, filter)
 	if err != nil {
@@ -287,6 +297,10 @@ func (a *adapter) LoadFilteredPolicy(model model.Model, filter interface{}) erro
 
 // IsFiltered returns true if the loaded policy has been filtered.
 func (a *adapter) IsFiltered() bool {
+	return a.filtered
+}
+
+func (a *adapter) IsFilteredCtx(ctx context.Context) bool {
 	return a.filtered
 }
 
@@ -319,6 +333,14 @@ func savePolicyLine(ptype string, rule []string) CasbinRule {
 
 // SavePolicy saves policy to database.
 func (a *adapter) SavePolicy(model model.Model) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
+	defer cancel()
+
+	return a.SavePolicyCtx(ctx, model)
+}
+
+// SavePolicyCtx implements persist.ContextFilteredAdapter.
+func (a *adapter) SavePolicyCtx(ctx context.Context, model model.Model) error {
 	if a.filtered {
 		return errors.New("cannot save a filtered policy")
 	}
@@ -341,8 +363,6 @@ func (a *adapter) SavePolicy(model model.Model) error {
 			lines = append(lines, &line)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
-	defer cancel()
 
 	if _, err := a.collection.InsertMany(ctx, lines); err != nil {
 		return err
@@ -353,11 +373,14 @@ func (a *adapter) SavePolicy(model model.Model) error {
 
 // AddPolicy adds a policy rule to the storage.
 func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
-	line := savePolicyLine(ptype, rule)
-
 	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
 	defer cancel()
 
+	return a.AddPolicyCtx(ctx, sec, ptype, rule)
+}
+
+func (a *adapter) AddPolicyCtx(ctx context.Context, sec string, ptype string, rule []string) error {
+	line := savePolicyLine(ptype, rule)
 	if _, err := a.collection.InsertOne(ctx, line); err != nil {
 		return err
 	}
@@ -401,10 +424,15 @@ func (a *adapter) RemovePolicies(sec string, ptype string, rules [][]string) err
 
 // RemovePolicy removes a policy rule from the storage.
 func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
-	line := savePolicyLine(ptype, rule)
-
 	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
 	defer cancel()
+
+	return a.RemovePolicyCtx(ctx, sec, ptype, rule)
+}
+
+// RemovePolicyCtx implements persist.ContextFilteredAdapter.
+func (a *adapter) RemovePolicyCtx(ctx context.Context, sec string, ptype string, rule []string) error {
+	line := savePolicyLine(ptype, rule)
 
 	if _, err := a.collection.DeleteOne(ctx, line); err != nil {
 		return err
@@ -415,6 +443,14 @@ func (a *adapter) RemovePolicy(sec string, ptype string, rule []string) error {
 
 // RemoveFilteredPolicy removes policy rules that match the filter from the storage.
 func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
+	defer cancel()
+
+	return a.RemoveFilteredPolicyCtx(ctx, sec, ptype, fieldIndex, fieldValues...)
+}
+
+// RemoveFilteredPolicyCtx implements persist.ContextFilteredAdapter.
+func (a *adapter) RemoveFilteredPolicyCtx(ctx context.Context, sec string, ptype string, fieldIndex int, fieldValues ...string) error {
 	selector := make(map[string]interface{})
 	selector["ptype"] = ptype
 
@@ -448,9 +484,6 @@ func (a *adapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int,
 			selector["v5"] = fieldValues[5-fieldIndex]
 		}
 	}
-
-	ctx, cancel := context.WithTimeout(context.TODO(), a.timeout)
-	defer cancel()
 
 	if _, err := a.collection.DeleteMany(ctx, selector); err != nil {
 		return err

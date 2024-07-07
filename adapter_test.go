@@ -17,10 +17,11 @@ package mongodbadapter
 import (
 	"context"
 	"fmt"
-	"go.mongodb.org/mongo-driver/mongo"
 	"os"
 	"strings"
 	"testing"
+
+	"go.mongodb.org/mongo-driver/mongo"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/util"
@@ -47,7 +48,10 @@ func getReplicaSetURL() string {
 
 func testGetPolicy(t *testing.T, e *casbin.Enforcer, res [][]string) {
 	t.Helper()
-	myRes := e.GetPolicy()
+	myRes, err := e.GetPolicy()
+	if err != nil {
+		t.Error(err)
+	}
 	t.Log("Policy: ", myRes)
 
 	if !util.Array2DEquals(res, myRes) {
@@ -56,7 +60,10 @@ func testGetPolicy(t *testing.T, e *casbin.Enforcer, res [][]string) {
 }
 
 func testGetPolicyWithoutOrder(t *testing.T, e *casbin.Enforcer, res [][]string) {
-	myRes := e.GetPolicy()
+	myRes, err := e.GetPolicy()
+	if err != nil {
+		t.Error(err)
+	}
 
 	if !arrayEqualsWithoutOrder(myRes, res) {
 		t.Error("Policy: ", myRes, ", supposed to be ", res)
@@ -347,8 +354,7 @@ func TestDeleteFilteredAdapter(t *testing.T) {
 	if err := e.LoadPolicy(); err != nil {
 		t.Errorf("Expected LoadPolicy() to be successful; got %v", err)
 	}
-	testGetPolicy(t, e, [][]string{},
-	)
+	testGetPolicy(t, e, [][]string{})
 }
 
 func TestFilteredAdapter(t *testing.T) {
