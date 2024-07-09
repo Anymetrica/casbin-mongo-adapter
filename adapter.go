@@ -381,7 +381,7 @@ func (a *adapter) AddPolicy(sec string, ptype string, rule []string) error {
 
 func (a *adapter) AddPolicyCtx(ctx context.Context, sec string, ptype string, rule []string) error {
 	line := savePolicyLine(ptype, rule)
-	if _, err := a.collection.InsertOne(ctx, line); err != nil {
+	if _, err := a.collection.UpdateOne(ctx, line, line, options.Update().SetUpsert(true)); err != nil {
 		return err
 	}
 
